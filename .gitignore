@@ -1,0 +1,6 @@
+.claude/
+node_modules/
+release/
+reference/
+.omc/
+docs/

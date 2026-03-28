@@ -1,0 +1,67 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 7%;
+    --foreground: 0 0% 82%;
+    --card: 0 0% 10%;
+    --card-foreground: 0 0% 82%;
+    --popover: 0 0% 10%;
+    --popover-foreground: 0 0% 82%;
+    --primary: 0 0% 75%;
+    --primary-foreground: 0 0% 7%;
+    --secondary: 0 0% 13%;
+    --secondary-foreground: 0 0% 75%;
+    --muted: 0 0% 13%;
+    --muted-foreground: 0 0% 40%;
+    --accent: 0 0% 14%;
+    --accent-foreground: 0 0% 82%;
+    --destructive: 0 0% 35%;
+    --destructive-foreground: 0 0% 90%;
+    --border: 0 0% 15%;
+    --input: 0 0% 14%;
+    --ring: 0 0% 50%;
+    --radius: 0.375rem;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground font-body antialiased;
+    overflow: hidden;
+  }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: hsl(0 0% 22%);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(0 0% 30%);
+}
+
+/* Titlebar drag region */
+.drag-region {
+  -webkit-app-region: drag;
+}
+.no-drag {
+  -webkit-app-region: no-drag;
+}
+
+/* Console line hover */
+.console-line:hover {
+  background: hsl(0 0% 9%);
+}
