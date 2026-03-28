@@ -12,7 +12,7 @@ class FarmEngine {
         this.isCancelled = true;
     }
 
-    async run({ bhvrSession, characterId, platform, sniperConfig, mode, contentNameMap }, onEvent) {
+    async run({ bhvrSession: apiKey, characterId, platform, sniperConfig, mode, contentNameMap }, onEvent) {
         if (this.isRunning) {
             onEvent('log', { message: 'Error: Farming is already running.' });
             return { snipedItems: {}, bloodwebsProcessed: 0, error: 'Already running' };
@@ -25,7 +25,7 @@ class FarmEngine {
         this.isCancelled = false;
         this.isRunning = true;
 
-        const { url, headers } = getApiConfig(platform, bhvrSession);
+        const { url, headers } = getApiConfig(platform, apiKey);
         const snipedItemsSummary = {};
         let bloodwebsProcessed = 0;
         let startingBP = null;

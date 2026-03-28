@@ -305,27 +305,6 @@ class MitmProxy {
     // ── MITM Request Handler ──
 
     handleMitmRequest(req, res, host) {
-        const cookie = this.extractCookie(req.headers);
-        if (cookie) {
-            const platform = HOST_PLATFORM[host] || 'unknown';
-            const existing = this.capturedCookies.get(platform);
-            const isNew = !existing || existing.value !== cookie;
-
-            this.capturedCookies.set(platform, {
-                value: cookie,
-                domain: host,
-                platform,
-                capturedAt: Date.now(),
-            });
-
-            if (isNew) {
-                console.log(`[Proxy] Captured bhvrSession from ${host} (${platform})`);
-                if (this.onCookieCaptured) {
-                    this.onCookieCaptured(platform, cookie);
-                }
-            }
-        }
-
         // Capture game headers for tomes (needed for API calls)
         if (this.tomeCompleter && req.headers['api-key']) {
             this.tomeCompleter.captureHeaders(req.headers, host);
@@ -396,12 +375,31 @@ class MitmProxy {
                             const decompressed = await this._decompressBody(buffer, encoding);
                             const data = JSON.parse(decompressed.toString('utf8'));
 
-                            if (snoopType === 'auth' && data.userId) {
-                                this.userId = data.userId;
-                                if (this.profileGenerator) {
-                                    this.profileGenerator.setUserId(data.userId);
+                            if (snoopType === 'auth') {
+                                if (data.userId) {
+                                    this.userId = data.userId;
+                                    if (this.profileGenerator) {
+                                        this.profileGenerator.setUserId(data.userId);
+                                    }
+                                    console.log(`[Proxy] Extracted userId: ${data.userId}`);
                                 }
-                                console.log(`[Proxy] Extracted userId: ${data.userId}`);
+                                if (data.token) {
+                                    const platform = HOST_PLATFORM[host] || 'unknown';
+                                    const existing = this.capturedCookies.get(platform);
+                                    const isNew = !existing || existing.value !== data.token;
+                                    this.capturedCookies.set(platform, {
+                                        value: data.token,
+                                        domain: host,
+                                        platform,
+                                        capturedAt: Date.now(),
+                                    });
+                                    if (isNew) {
+                                        console.log(`[Proxy] Captured api-key token from ${host} (${platform})`);
+                                        if (this.onCookieCaptured) {
+                                            this.onCookieCaptured(platform, data.token);
+                                        }
+                                    }
+                                }
                             } else if (snoopType === 'inventories' && data.inventoryItems) {
                                 // Merge live cosmetics for caching
                                 if (this.profileGenerator) {

@@ -1,4 +1,4 @@
-function getApiConfig(platform, bhvrSession) {
+function getApiConfig(platform, apiKey) {
     let url, headers;
 
     if (platform === 'ms_store') {
@@ -7,7 +7,6 @@ function getApiConfig(platform, bhvrSession) {
             'Host': 'grdk.live.bhvrdbd.com',
             'Accept': '*/*',
             'Accept-Encoding': 'deflate, gzip',
-            'Cookie': `bhvrSession=${bhvrSession}`,
             'Content-Type': 'application/json',
             'x-kraken-analytics-session-id': 'ee543239-4c67-c85c-d14a-5d8bea6665f6',
             'x-kraken-client-platform': 'grdk',
@@ -16,7 +15,7 @@ function getApiConfig(platform, bhvrSession) {
             'x-kraken-client-timezone-offset': '0',
             'x-kraken-client-os': '10.0.26200.1.768.64bit',
             'x-kraken-client-version': '9.4.0',
-            'api-key': 'f7a0d180-99e1-412c-8f68-820287ee1c33',
+            'api-key': apiKey,
             'User-Agent': 'DeadByDaylight/DBD_Poutine_REL_WinGDK_Shipping_9_3050628 (http-legacy) WinGDK/10.0.26200.1.768.64bit'
         };
     } else if (platform === 'steam') {
@@ -25,7 +24,6 @@ function getApiConfig(platform, bhvrSession) {
             'Host': 'steam.live.bhvrdbd.com',
             'Accept': '*/*',
             'Accept-Encoding': 'deflate, gzip',
-            'Cookie': `bhvrSession=${bhvrSession}`,
             'Content-Type': 'application/json',
             'x-kraken-analytics-session-id': '68f8bc3c-41bb-43e5-43b9-9484511a6c67',
             'x-kraken-client-platform': 'steam',
@@ -34,7 +32,7 @@ function getApiConfig(platform, bhvrSession) {
             'x-kraken-client-timezone-offset': '0',
             'x-kraken-client-os': '10.0.26200.1.768.64bit',
             'x-kraken-client-version': '9.4.1',
-            'api-key': 'd79b78b2-b3be-4ea7-a598-7455d5963eb6',
+            'api-key': apiKey,
             'User-Agent': 'DeadByDaylight/DBD_Poutine_HF1_Steam_Shipping_8_3068573 (http-legacy) Windows/10.0.26200.1.768.64bit'
         };
     } else {
@@ -43,7 +41,6 @@ function getApiConfig(platform, bhvrSession) {
             'Host': 'egs.live.bhvrdbd.com',
             'Accept': '*/*',
             'Accept-Encoding': 'deflate, gzip',
-            'Cookie': `bhvrSession=${bhvrSession}`,
             'Content-Type': 'application/json',
             'x-kraken-analytics-session-id': '6565f031-4bbe-f9ab-2701-8f994f4c728a',
             'x-kraken-client-platform': 'egs',
@@ -52,7 +49,7 @@ function getApiConfig(platform, bhvrSession) {
             'x-kraken-client-timezone-offset': '0',
             'x-kraken-client-os': '10.0.26200.1.768.64bit',
             'x-kraken-client-version': '9.3.0',
-            'api-key': 'ede0cfd5-b399-41f2-a235-544f76ed3148',
+            'api-key': apiKey,
             'User-Agent': 'DeadByDaylight/DBD_Omelet_REL_EGS_Shipping_7_2868988 (http-legacy) EGS/10.0.26200.1.768.64bit'
         };
     }

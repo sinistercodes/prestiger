@@ -32,12 +32,11 @@ class TomeCompleter {
         if (headers['x-kraken-client-provider']) this.gameHeaders['x-kraken-client-provider'] = headers['x-kraken-client-provider'];
         if (headers['x-kraken-client-os']) this.gameHeaders['x-kraken-client-os'] = headers['x-kraken-client-os'];
         if (headers['x-kraken-client-version']) this.gameHeaders['x-kraken-client-version'] = headers['x-kraken-client-version'];
-        if (headers['cookie']) this.gameHeaders['cookie'] = headers['cookie'];
         if (host) this.platformHost = host;
     }
 
     _hasHeaders() {
-        return this.platformHost && this.gameHeaders['cookie'] && this.gameHeaders['api-key'];
+        return this.platformHost && this.gameHeaders['api-key'];
     }
 
     _emit(type, data = {}) {
