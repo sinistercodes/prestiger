@@ -12,7 +12,7 @@ class PrestigeEngine {
         this.isCancelled = true;
     }
 
-    async run({ bhvrSession, characterId, prestigeCount, platform, sniperConfig, contentNameMap }, onEvent) {
+    async run({ bhvrSession: apiKey, characterId, prestigeCount, platform, sniperConfig, contentNameMap }, onEvent) {
         if (this.isRunning) {
             onEvent('log', { message: 'Error: A prestige is already running.' });
             return { prestigesDone: 0, totalTarget: 0, snipedItems: {}, error: 'Already running' };
@@ -20,7 +20,7 @@ class PrestigeEngine {
         this.isCancelled = false;
         this.isRunning = true;
 
-        const { url, headers } = getApiConfig(platform, bhvrSession);
+        const { url, headers } = getApiConfig(platform, apiKey);
 
         const targetPrestiges = Math.min(Math.max(parseInt(prestigeCount) || 1, 1), 100);
         const sniper = sniperConfig || [];
