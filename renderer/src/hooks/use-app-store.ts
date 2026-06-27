@@ -40,6 +40,8 @@ export interface UnlockConfig {
     bloodwebRandomMin?: number
     bloodwebRandomMax?: number
   }
+  perks: { enabled: boolean }
+  items: { enabled: boolean }
   cosmetics: { enabled: boolean }
   currency: {
     enabled: boolean
@@ -47,11 +49,21 @@ export interface UnlockConfig {
     shards: number
     cells: number
   }
+  eventCurrencies: {
+    enabled: boolean
+    amount: number
+  }
   level: { enabled: boolean; value: number }
   itemQuantity: number
   killswitch: { enabled: boolean }
   tutorials: { enabled: boolean }
   blockGamelogs: { enabled: boolean }
+  pingSpoof?: {
+    enabled: boolean
+    region: string
+    goodLatency: number
+    badLatency: number
+  }
 }
 
 export function useAppStore() {
@@ -67,13 +79,17 @@ export function useAppStore() {
   const [unlockConfig, setUnlockConfig] = useState<UnlockConfig>({
     enabled: false,
     characters: { enabled: false, prestigeLevel: 100, bloodwebLevel: 50 },
+    perks: { enabled: true },
+    items: { enabled: true },
     cosmetics: { enabled: false },
     currency: { enabled: false, bloodpoints: 999999999, shards: 999999999, cells: 999999999 },
+    eventCurrencies: { enabled: true, amount: 999999 },
     level: { enabled: false, value: 99 },
-    itemQuantity: 100,
+    itemQuantity: 999,
     killswitch: { enabled: false },
     tutorials: { enabled: false },
     blockGamelogs: { enabled: false },
+    pingSpoof: { enabled: false, region: 'eu-west-1', goodLatency: 20, badLatency: 999 },
   })
 
   // Form state

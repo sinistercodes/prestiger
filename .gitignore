@@ -4,3 +4,5 @@ release/
 reference/
 .omc/
 docs/
+.omo/
+tools/

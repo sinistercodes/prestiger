@@ -37,9 +37,19 @@ jobs:
         run: npx electron-builder --win
 
       - name: Create Release
+        id: create_release
         uses: softprops/action-gh-release@v2
         with:
           files: release/*.exe
           generate_release_notes: true
           draft: false
           prerelease: false
+
+      - name: Notify Discord
+        if: env.DISCORD_WEBHOOK_URL != ''
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          curl -s -X POST -H "Content-Type: application/json" \
+            -d "{\"embeds\":[{\"title\":\"prestiger ${{ github.ref_name }} released\",\"description\":\"New build is ready to download.\",\"url\":\"${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ github.ref_name }}\",\"color\":8948035,\"fields\":[{\"name\":\"Download\",\"value\":\"[Latest Release](${{ github.server_url }}/${{ github.repository }}/releases/latest)\"}],\"footer\":{\"text\":\"prestiger\"},\"timestamp\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}]}" \
+            "$DISCORD_WEBHOOK_URL"

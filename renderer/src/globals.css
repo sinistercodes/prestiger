@@ -65,3 +65,50 @@
 .console-line:hover {
   background: hsl(0 0% 9%);
 }
+
+/* ── Desktop-app text-selection behaviour ──────────────────────────────────
+   Disable text selection globally so chrome (buttons, labels, tab strips,
+   list rows, badges) doesn't get a sticky highlight when the user click-drags
+   across the UI. Selection stays available wherever the user genuinely needs
+   to copy / edit text:
+
+     - `input`, `textarea`, `[contenteditable]` → form fields
+     - `pre`, `code`                            → preformatted blocks
+                                                  (DebugTab JSON panels)
+     - `.selectable` / Tailwind `select-text`   → explicit opt-in
+                                                  (Console log lines, etc.)
+
+   user-select is inherited, so setting it on the descendants overrides the
+   body-level default without specificity hacks. */
+body {
+  -webkit-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+  cursor: default;
+}
+
+input,
+textarea,
+[contenteditable="true"],
+[contenteditable=""],
+pre,
+code,
+.selectable,
+.select-text {
+  -webkit-user-select: text;
+  -ms-user-select: text;
+  user-select: text;
+  cursor: text;
+}
+
+button,
+[role="button"],
+a {
+  cursor: pointer;
+}
+
+/* Block native image drag — clipping an icon out of the window looks broken. */
+img {
+  -webkit-user-drag: none;
+  user-drag: none;
+}

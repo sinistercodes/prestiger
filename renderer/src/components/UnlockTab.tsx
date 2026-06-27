@@ -3,7 +3,27 @@ import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Switch } from '@/components/ui/switch'
 import { Slider } from '@/components/ui/slider'
-import { Shield, ShieldCheck, Shuffle, Lock, Unlock, Coins, User, Shirt, Swords, Zap, GraduationCap, EyeOff } from 'lucide-react'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Shield, ShieldCheck, Shuffle, Lock, Unlock, Coins, User, Shirt, Swords, Zap, GraduationCap, EyeOff, Globe2, Star, Package } from 'lucide-react'
+
+// BHVR's matchmaking regions (from /api/v1/config GAMELIFT_ENDPOINTS).
+const REGIONS: Array<{ id: string; label: string }> = [
+  { id: 'eu-west-1',      label: 'Ireland (EU West)' },
+  { id: 'eu-west-2',      label: 'London (EU West 2)' },
+  { id: 'eu-central-1',   label: 'Frankfurt (EU Central)' },
+  { id: 'us-east-1',      label: 'N. Virginia (US East)' },
+  { id: 'us-east-2',      label: 'Ohio (US East 2)' },
+  { id: 'us-west-1',      label: 'N. California (US West)' },
+  { id: 'us-west-2',      label: 'Oregon (US West 2)' },
+  { id: 'ca-central-1',   label: 'Canada (Central)' },
+  { id: 'sa-east-1',      label: 'São Paulo (S. America)' },
+  { id: 'ap-northeast-1', label: 'Tokyo (AP NE)' },
+  { id: 'ap-northeast-2', label: 'Seoul (AP NE 2)' },
+  { id: 'ap-southeast-1', label: 'Singapore (AP SE)' },
+  { id: 'ap-southeast-2', label: 'Sydney (AP SE 2)' },
+  { id: 'ap-south-1',     label: 'Mumbai (AP South)' },
+  { id: 'ap-east-1',      label: 'Hong Kong (AP East)' },
+]
 import { cn } from '@/lib/utils'
 import type { UnlockConfig } from '@/hooks/use-app-store'
 
@@ -39,8 +59,10 @@ export default function UnlockTab({ config, onConfigChange, proxyActive }: Unloc
   }
 
   const enabledCount = [
-    config.characters.enabled, config.cosmetics.enabled, config.currency.enabled, config.level.enabled,
+    config.characters.enabled, config.perks?.enabled, config.items?.enabled,
+    config.cosmetics.enabled, config.currency.enabled, config.level.enabled,
     config.killswitch?.enabled, config.tutorials?.enabled, config.blockGamelogs?.enabled,
+    config.pingSpoof?.enabled,
   ].filter(Boolean).length
 
   return (
@@ -95,10 +117,24 @@ export default function UnlockTab({ config, onConfigChange, proxyActive }: Unloc
             {[
               {
                 icon: Swords,
-                label: 'Characters & Perks',
-                desc: 'All characters, prestige levels, items',
+                label: 'All Characters',
+                desc: 'Force ALL characters to appear as owned + max prestige',
                 enabled: config.characters.enabled,
                 onToggle: (v: boolean) => updateCharacters({ enabled: v }),
+              },
+              {
+                icon: Star,
+                label: 'Perks',
+                desc: 'All perks at tier 3 for every character',
+                enabled: config.perks?.enabled ?? true,
+                onToggle: (v: boolean) => update({ perks: { enabled: v } }),
+              },
+              {
+                icon: Package,
+                label: 'Items, Addons & Offerings',
+                desc: 'All consumables (toolboxes, medkits, addons, moris, cakes)',
+                enabled: config.items?.enabled ?? true,
+                onToggle: (v: boolean) => update({ items: { enabled: v } }),
               },
               {
                 icon: Shirt,
@@ -142,6 +178,20 @@ export default function UnlockTab({ config, onConfigChange, proxyActive }: Unloc
                 enabled: config.blockGamelogs?.enabled ?? false,
                 onToggle: (v: boolean) => update({ blockGamelogs: { enabled: v } }),
               },
+              {
+                icon: Globe2,
+                label: 'Region Lock',
+                desc: 'Spoof ping to force a specific server region',
+                enabled: config.pingSpoof?.enabled ?? false,
+                onToggle: (v: boolean) => update({
+                  pingSpoof: {
+                    region: config.pingSpoof?.region ?? 'eu-west-1',
+                    goodLatency: config.pingSpoof?.goodLatency ?? 20,
+                    badLatency: config.pingSpoof?.badLatency ?? 999,
+                    enabled: v,
+                  }
+                }),
+              },
             ].map(({ icon: Icon, label, desc, enabled, onToggle }) => (
               <button
                 key={label}
@@ -174,7 +224,8 @@ export default function UnlockTab({ config, onConfigChange, proxyActive }: Unloc
           </h2>
         </div>
         <div className="flex-1 overflow-y-auto">
-          {!config.characters.enabled && !config.currency.enabled && !config.level.enabled ? (
+          {!config.characters.enabled && !config.items?.enabled && !config.currency.enabled &&
+           !config.level.enabled && !config.pingSpoof?.enabled ? (
             <div className="flex-1 flex items-center justify-center h-full">
               <div className="text-center">
                 <Unlock className="h-6 w-6 mx-auto text-muted-foreground/30 mb-2" />
@@ -183,12 +234,12 @@ export default function UnlockTab({ config, onConfigChange, proxyActive }: Unloc
             </div>
           ) : (
             <div className="divide-y divide-border">
-              {/* Characters & Perks settings */}
+              {/* Character settings — show when All Characters is ON */}
               {config.characters.enabled && (
                 <div className="p-4 space-y-4">
                   <h3 className="font-display text-[10px] font-semibold uppercase tracking-[0.15em] text-muted-foreground flex items-center gap-2">
                     <Swords className="h-3 w-3" />
-                    Characters & Perks
+                    All Characters
                   </h3>
 
                   {/* Prestige */}
@@ -309,7 +360,16 @@ export default function UnlockTab({ config, onConfigChange, proxyActive }: Unloc
                     </div>
                   </div>
 
-                  {/* Item Quantity */}
+                </div>
+              )}
+
+              {/* Items, Addons & Offerings settings — show when that toggle is ON */}
+              {config.items?.enabled && (
+                <div className="p-4 space-y-3">
+                  <h3 className="font-display text-[10px] font-semibold uppercase tracking-[0.15em] text-muted-foreground flex items-center gap-2">
+                    <Package className="h-3 w-3" />
+                    Items, Addons & Offerings
+                  </h3>
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
                       <label className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Item Qty</label>
@@ -317,7 +377,7 @@ export default function UnlockTab({ config, onConfigChange, proxyActive }: Unloc
                     </div>
                     <Slider
                       value={[config.itemQuantity]}
-                      min={1} max={9999} step={1}
+                      min={1} max={999} step={1}
                       onValueChange={([v]) => update({ itemQuantity: v })}
                     />
                   </div>
@@ -348,6 +408,40 @@ export default function UnlockTab({ config, onConfigChange, proxyActive }: Unloc
                       </div>
                     ))}
                   </div>
+
+                  {/* Event currencies — Halloween, Lunar New Year, Keystones, etc. */}
+                  <div className="pt-2 border-t border-border/40 space-y-2">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="text-[11px] font-medium">Event Currencies</div>
+                        <div className="text-[9px] text-muted-foreground mt-0.5">
+                          Halloween, LunarNewYear, Keystones, ObsidianBones, Dust, …
+                        </div>
+                      </div>
+                      <Switch
+                        checked={config.eventCurrencies?.enabled ?? true}
+                        onCheckedChange={(enabled) => update({
+                          eventCurrencies: { ...(config.eventCurrencies ?? { amount: 999999 }), enabled }
+                        })}
+                      />
+                    </div>
+                    {(config.eventCurrencies?.enabled ?? true) && (
+                      <div className="flex items-center gap-2">
+                        <label className="text-[9px] uppercase tracking-wider text-muted-foreground shrink-0">Amount</label>
+                        <Input
+                          type="number" min={0}
+                          value={config.eventCurrencies?.amount ?? 999999}
+                          onChange={(e) => update({
+                            eventCurrencies: {
+                              enabled: config.eventCurrencies?.enabled ?? true,
+                              amount: parseInt(e.target.value) || 0,
+                            }
+                          })}
+                          className="h-7 flex-1 text-xs text-center bg-secondary/50 font-mono [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                        />
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
 
@@ -367,6 +461,62 @@ export default function UnlockTab({ config, onConfigChange, proxyActive }: Unloc
                       className="h-8 w-24 text-xs text-center bg-secondary/50 font-mono [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                     />
                   </div>
+                </div>
+              )}
+
+              {/* Region Lock / Ping Spoof settings */}
+              {config.pingSpoof?.enabled && (
+                <div className="p-4 space-y-3">
+                  <h3 className="font-display text-[10px] font-semibold uppercase tracking-[0.15em] text-muted-foreground flex items-center gap-2">
+                    <Globe2 className="h-3 w-3" />
+                    Region Lock
+                  </h3>
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground block">Preferred region</label>
+                    <Select
+                      value={config.pingSpoof.region}
+                      onValueChange={(v) => update({ pingSpoof: { ...config.pingSpoof!, region: v } })}
+                    >
+                      <SelectTrigger
+                        className="w-full h-8 bg-secondary/50 border border-border rounded-sm px-2 text-xs font-mono outline-none ring-offset-0 focus:ring-0 focus:outline-none focus-visible:ring-0 focus-visible:outline-none data-[state=open]:bg-secondary/70"
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent className="max-h-[320px]">
+                        {REGIONS.map(r => (
+                          <SelectItem key={r.id} value={r.id} className="text-xs font-mono">
+                            <span className="text-foreground">{r.id}</span>
+                            <span className="text-muted-foreground"> — {r.label}</span>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="space-y-1">
+                      <label className="text-[9px] font-medium uppercase tracking-wider text-muted-foreground block text-center">Good ms</label>
+                      <Input
+                        type="number" min={1} max={9999}
+                        value={config.pingSpoof.goodLatency}
+                        onChange={(e) => update({ pingSpoof: { ...config.pingSpoof!, goodLatency: parseInt(e.target.value) || 20 } })}
+                        className="h-8 text-xs text-center bg-secondary/50 font-mono [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[9px] font-medium uppercase tracking-wider text-muted-foreground block text-center">Bad ms</label>
+                      <Input
+                        type="number" min={1} max={9999}
+                        value={config.pingSpoof.badLatency}
+                        onChange={(e) => update({ pingSpoof: { ...config.pingSpoof!, badLatency: parseInt(e.target.value) || 999 } })}
+                        className="h-8 text-xs text-center bg-secondary/50 font-mono [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                      />
+                    </div>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground leading-relaxed">
+                    Rewrites the per-region latency table the game sends to BHVR's matchmaker.
+                    Your preferred region keeps the "good" value; every other region gets the "bad" value
+                    so BHVR's lobby-stitcher won't route you there. Requires the proxy to be running.
+                  </p>
                 </div>
               )}
 

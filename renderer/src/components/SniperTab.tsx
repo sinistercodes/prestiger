@@ -102,6 +102,7 @@ export default function SniperTab({
               survivors={survivors}
               killers={killers}
               selected={selectedCharacter ? [selectedCharacter] : []}
+              single
               onSelectionChange={(ids) => {
                 const newId = ids.find(id => id !== selectedCharacter) || ids[0] || ''
                 setSelectedCharacter(newId)

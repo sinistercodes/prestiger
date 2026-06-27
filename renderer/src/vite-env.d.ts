@@ -26,6 +26,7 @@ declare global {
     onPrestigeEvent: (callback: (data: PrestigeEvent) => void) => () => void;
     onPrestigeComplete: (callback: (data: PrestigeResult) => void) => () => void;
     onCookieCaptured: (callback: (data: { platform: string; cookie: string }) => void) => () => void;
+    onAutoLog: (callback: (data: { message: string; type: 'info' | 'success' | 'error' | 'warn' }) => void) => () => void;
     // Farming
     startFarm: (config: FarmConfig) => void;
     cancelFarm: () => void;
@@ -37,6 +38,8 @@ declare global {
     getCosmeticsData: () => Promise<CosmeticsInfo>;
     // Debug
     onRequestLog: (callback: (data: ProxyRequestLog) => void) => () => void;
+    exportDebugLogs: (logs: ProxyRequestLog[]) => Promise<DebugExportResult>;
+    replayRequest: (req: ReplayRequest) => Promise<ReplayResponse>;
     // Tomes
     getTomesConfig: () => Promise<{ enabled: boolean }>;
     setTomesConfig: (config: { enabled: boolean }) => Promise<{ success: boolean }>;
@@ -62,6 +65,7 @@ declare global {
 
   interface ProxyRequestLog {
     timestamp: number;
+    source?: 'proxy' | 'engine' | 'replay';
     method: string;
     host: string;
     path: string;
@@ -71,6 +75,35 @@ declare global {
     snooped: string | null;
     requestBody: string | null;
     responseBody: string | null;
+    requestHeaders?: Record<string, string> | null;
+    responseHeaders?: Record<string, string> | null;
+    durationMs?: number;
+  }
+
+  interface DebugExportResult {
+    success: boolean;
+    path?: string;
+    count?: number;
+    cancelled?: boolean;
+    error?: string;
+  }
+
+  interface ReplayRequest {
+    method: string;
+    url: string;
+    headers: Record<string, string>;
+    body?: string;
+  }
+
+  interface ReplayResponse {
+    ok: boolean;
+    status: number;
+    statusText?: string;
+    headers: Record<string, string>;
+    body: string;
+    durationMs: number;
+    error?: string;
+    code?: string | null;
   }
 
   interface WindowControls {

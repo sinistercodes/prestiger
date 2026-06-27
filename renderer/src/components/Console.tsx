@@ -72,7 +72,7 @@ export default function Console({ logs, onClear }: ConsoleProps) {
 
       {/* Log body */}
       <ScrollArea className="flex-1 bg-background">
-        <div className="px-3 py-2 font-mono text-xs">
+        <div className="px-3 py-2 font-mono text-xs select-text">
           {logs.map((log) => (
             <div
               key={log.id}

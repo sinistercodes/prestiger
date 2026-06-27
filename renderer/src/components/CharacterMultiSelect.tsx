@@ -16,6 +16,8 @@ interface CharacterMultiSelectProps {
   killers: Array<{ name: string; id: string }>
   selected: string[]
   onSelectionChange: (ids: string[]) => void
+  /** When true, hides the "All/Clear" bulk-select button. Use for single-pick contexts (e.g. Sniper tab). */
+  single?: boolean
 }
 
 export default function CharacterMultiSelect({
@@ -23,6 +25,7 @@ export default function CharacterMultiSelect({
   killers,
   selected,
   onSelectionChange,
+  single = false,
 }: CharacterMultiSelectProps) {
   const [open, setOpen] = React.useState(false)
   const [search, setSearch] = React.useState("")
@@ -128,12 +131,14 @@ export default function CharacterMultiSelect({
             onChange={(e) => setSearch(e.target.value)}
             className="h-7 text-xs bg-secondary/50 border-border flex-1"
           />
-          <button
-            onClick={() => selectAllInGroup(activeGroup)}
-            className="text-[10px] text-muted-foreground hover:text-foreground transition-colors whitespace-nowrap px-1"
-          >
-            {allSelected ? 'Clear' : 'All'}
-          </button>
+          {!single && (
+            <button
+              onClick={() => selectAllInGroup(activeGroup)}
+              className="text-[10px] text-muted-foreground hover:text-foreground transition-colors whitespace-nowrap px-1"
+            >
+              {allSelected ? 'Clear' : 'All'}
+            </button>
+          )}
         </div>
 
         {/* Characters */}

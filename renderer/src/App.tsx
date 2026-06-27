@@ -26,16 +26,22 @@ export default function App() {
   const [detectedExe, setDetectedExe] = useState<string | null>(null)
   const [debugLogs, setDebugLogs] = useState<ProxyRequestLog[]>([])
 
-  // Listen for proxy request logs (persists across tab switches)
+  // Append a single log entry to the debug log buffer (capped at 500).
+  // Used by both the IPC listener and the DebugTab's replay/resend flows.
+  const appendDebugLog = useCallback((entry: ProxyRequestLog) => {
+    setDebugLogs(prev => {
+      const next = [...prev, entry]
+      return next.length > 500 ? next.slice(-500) : next
+    })
+  }, [])
+
+  // Listen for proxy + engine request logs (persists across tab switches)
   useEffect(() => {
     const off = window.api.onRequestLog((entry) => {
-      setDebugLogs(prev => {
-        const next = [...prev, entry]
-        return next.length > 500 ? next.slice(-500) : next
-      })
+      appendDebugLog(entry)
     })
     return off
-  }, [])
+  }, [appendDebugLog])
 
   const queueRef = useRef(store.queue)
   queueRef.current = store.queue
@@ -181,6 +187,10 @@ export default function App() {
       store.log(`Session captured via proxy (${platform})`, 'success')
     })
 
+    const offAutoLog = window.api.onAutoLog(({ message, type }) => {
+      store.log(message, type)
+    })
+
     const offFarmEvent = window.api.onFarmEvent((data) => {
       switch (data.type) {
         case 'log': {
@@ -225,6 +235,7 @@ export default function App() {
       offEvent()
       offComplete()
       offCookie()
+      offAutoLog()
       offFarmEvent()
       offFarmComplete()
     }
@@ -455,7 +466,11 @@ export default function App() {
           </TabsContent>
 
           <TabsContent value="debug" className="flex-1 mt-0 overflow-hidden">
-            <DebugTab logs={debugLogs} onClearLogs={() => setDebugLogs([])} />
+            <DebugTab
+              logs={debugLogs}
+              onClearLogs={() => setDebugLogs([])}
+              onAppendLog={appendDebugLog}
+            />
           </TabsContent>
 
           <TabsContent value="about" className="flex-1 mt-0 overflow-hidden">
