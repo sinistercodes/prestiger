@@ -609,6 +609,48 @@ class ProfileGenerator {
      *      cosmetics baseline and consumables can't double-set.
      *   3. Items NOT in our spoof set keep their real server quantity.
      */
+    /**
+     * Scans the real (pre-spoof) inventory for cosmetic-like objectIds and
+     * returns the set of owned-character prefixes.
+     *
+     * In DBD, character ownership is implied by inventory presence — owning
+     * any cosmetic for a character makes the game treat them as owned. The
+     * inventory uses 1-2 letter + digits prefixes per character (e.g. S45,
+     * K23, MT, KK, Hillbilly, Wraith) followed by an underscore and the piece
+     * identifier.
+     *
+     * Detection rules:
+     *   1. Skip perks/items/addons/offerings — those have their own ID sets
+     *      and are NOT character-ownership markers.
+     *   2. Skip pure prestige-reward markers like `S45P01` / `K23P03` (no
+     *      underscore-suffix). BHVR grants these to ALL players regardless
+     *      of whether they own the underlying character — they're tracking
+     *      placeholders, NOT proof of ownership. Including them would
+     *      whitelist every char that BHVR pre-seeds prestige rewards for.
+     *   3. Otherwise, take the first underscore-separated segment as the
+     *      char prefix and normalize prestige variants
+     *      (e.g. S45P01_Head01 → S45 since prestige outfits are unlocked
+     *      via the base char).
+     */
+    _extractOwnedCharPrefixes(realInventoryItems) {
+        const owned = new Set();
+        if (!Array.isArray(realInventoryItems)) return owned;
+        // Pure prestige-reward marker: prefix + P + digits, with no further segment.
+        const prestigeOnly = /^[A-Za-z]+\d*P\d+$/;
+        // Prefix + optional prestige variant, followed by underscore or end.
+        const prefixPat = /^([A-Za-z]+\d*)(?:P\d+)?(?:_|$)/;
+        for (const item of realInventoryItems) {
+            if (!item || !item.objectId) continue;
+            const oid = item.objectId;
+            if (this.perkIds.has(oid) || this.itemIds.has(oid) ||
+                this.addonIds.has(oid) || this.offeringIds.has(oid)) continue;
+            if (prestigeOnly.test(oid)) continue;
+            const m = prefixPat.exec(oid);
+            if (m) owned.add(m[1]);
+        }
+        return owned;
+    }
+
     populateInventory(realResponse, config, isInMatch = false) {
         const result = { ...realResponse };
         if (!Array.isArray(result.inventoryItems)) result.inventoryItems = [];
@@ -663,10 +705,41 @@ class ProfileGenerator {
             // here would either clobber the real server quantity (out of match,
             // when the consumables loop is skipped) or be immediately overwritten
             // by the in-match consumables loop — neither is correct. Skip them.
+            //
+            // OWNERSHIP GATE:
+            //   DBD infers character ownership from cosmetic presence in
+            //   inventoryItems. Owning the default outfit pieces
+            //   (e.g. S45_Head01 + S45_Torso01 + S45_Legs01) makes the
+            //   game treat that character as owned at the lobby screen.
+            //   So injecting the full baseline (~12k cosmetics across ~96 chars)
+            //   silently unlocks every character — even when the user has
+            //   `characters.enabled` turned OFF and explicitly opted out.
+            //
+            //   Fix: when characters.enabled is OFF, scan the REAL inventory
+            //   for cosmetic-like objectIds, derive the owned-character
+            //   prefix set, and only inject cosmetics whose prefix is in that
+            //   set. This preserves all skins for the chars the user actually
+            //   owns while leaving unowned chars locked.
+            //
+            //   When characters.enabled is ON, the user explicitly wants
+            //   every character force-unlocked, so we inject everything.
+            const forceAllCharsOwned = !!(config.characters && config.characters.enabled);
+            const ownedCharPrefixes = forceAllCharsOwned ? null : this._extractOwnedCharPrefixes(result.inventoryItems);
+            const charPrefixPat = /^([A-Za-z]+\d*)(?:P\d+)?(?:_|$)/;
+
             for (const c of this.getMergedCosmetics()) {
                 const id = c.objectId;
                 if (this.perkIds.has(id) || this.itemIds.has(id) ||
                     this.addonIds.has(id) || this.offeringIds.has(id)) continue;
+
+                if (ownedCharPrefixes) {
+                    const m = charPrefixPat.exec(id);
+                    // Cosmetics whose prefix doesn't match an owned char get
+                    // skipped. If the prefix isn't extractable (rare format),
+                    // we skip it too — safer than silently unlocking something.
+                    if (!m || !ownedCharPrefixes.has(m[1])) continue;
+                }
+
                 setSpoof(id, 1, c.lastUpdatedAt || timestamp);
             }
         }
