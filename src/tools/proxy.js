@@ -7,6 +7,7 @@ const forge = require('node-forge');
 const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
+const { LoadoutStore } = require('../loadout-store');
 
 // Store certs in user's app data, not inside the app directory (ASAR can't be written to)
 const CERT_DIR = path.join(require('os').homedir(), '.prestiger', 'certs');
@@ -32,6 +33,11 @@ class MitmProxy {
         this.server = null;
         this.mitmHttpServer = null;
         this.capturedCookies = new Map();
+        // Per-host snapshot of the live game's request headers (user-agent +
+        // x-kraken-*). Updated on every non-internal BHVR request so engine
+        // calls can re-use byte-for-byte identical headers via getApiConfig's
+        // headerOverrides arg.
+        this.capturedGameHeaders = new Map();
         this.onCookieCaptured = null;
         this.proxyRunning = false;
         this.systemProxyEnabled = false;
@@ -50,6 +56,11 @@ class MitmProxy {
         this.tomeCompleter = null;
         this.playerRole = null; // 'survivor' | 'killer' | null
         this.isInMatch = false;
+        // Per-character loadout persistence (~/.prestiger/loadouts/).
+        // Captures POST/PUT requests to /api/v1/dbd-character-data/loadout and
+        // restores stored state into responses so the server's inventory-
+        // validation strip can't wipe the player's saved perks/items/addons.
+        this.loadoutStore = new LoadoutStore();
     }
 
     // ── Certificate Management ──
@@ -177,17 +188,20 @@ class MitmProxy {
 
         const cfg = this.unlockConfig;
 
-        // Block gamelogs entirely
+        // Block gamelogs entirely. Matches Igromanru reference behaviour:
+        // intercept BOTH the dedicated gamelogs subdomain AND the per-platform
+        // /api/v1/gameLogs/batch path (game still sends those even when the
+        // subdomain is unreachable). Returns a synthetic success shape so the
+        // client doesn't retry.
         if (cfg.blockGamelogs && cfg.blockGamelogs.enabled) {
             if (host === 'gamelogs.live.bhvrdbd.com') return 'blockGamelogs';
+            if (url.includes('/api/v1/gameLogs/batch')) return 'blockGamelogs';
         }
 
         if (!this.profileGenerator) return null;
 
         if (cfg.characters && cfg.characters.enabled) {
             if (url.includes('/api/v1/dbd-character-data/get-all')) return 'getAll';
-            // bloodweb is snooped (not intercepted) — requests must reach the server
-            // so node purchases get processed. We modify the response afterwards.
         }
         // Note: dbd-inventories/all is handled via response modification in snooping, not here
         if (cfg.currency && cfg.currency.enabled) {
@@ -221,7 +235,11 @@ class MitmProxy {
             case 'killswitch': return this.profileGenerator.generateKillswitch();
             case 'tutorialStatus': return { survivorMatchPlayed: true, killerMatchPlayed: true };
             case 'tutorialOnboarding': return this.profileGenerator.generateOnboarding();
-            case 'blockGamelogs': return {};
+            case 'blockGamelogs':
+                // Shape the Kinesis-Firehose batch ack the BHVR client expects.
+                // Matches the Igromanru Fiddler-script response — anything else
+                // can trip the client into retrying every batch.
+                return { Encrypted: false, FailedPutCount: 0, RequestResponses: [{ RecordId: '' }] };
             case 'playerCardSet': {
                 // Save the card data (badges/banners) and echo it back
                 if (reqBodyStr) {
@@ -265,6 +283,21 @@ class MitmProxy {
         if (url.includes('/api/v1/auth/provider/')) return 'auth';
         if (url.includes('/api/v1/dbd-inventories/all')) return 'inventories';
         if (url.includes('/api/v1/dbd-character-data/bloodweb')) return 'bloodweb';
+        if (url.includes('/api/v1/dbd-character-data/loadout')) return 'loadout';
+        if (url.includes('/api/v1/extensions/wallet/getLocalizedCurrenciesAfterLogin')) return 'walletLocalized';
+
+        // Snoop get-all when "All Characters" is OFF but any item sub-toggle
+        // is ON. This lets the real server response through (only owned chars)
+        // while we merge our characterItems into each owned character.
+        const anyItemToggle = this.unlockConfig && (
+            this.unlockConfig.perks?.enabled !== false ||
+            this.unlockConfig.items?.enabled !== false
+        );
+        const charsEnabled = this.unlockConfig && this.unlockConfig.characters && this.unlockConfig.characters.enabled;
+        if (anyItemToggle && !charsEnabled && url.includes('/api/v1/dbd-character-data/get-all')) {
+            return 'getAllMerge';
+        }
+
         if (url.includes('/api/v1/match')) return 'match';
         if (url.includes('/api/v1/gameDataAnalytics/v2/batch')) return 'analytics';
         return null;
@@ -284,10 +317,11 @@ class MitmProxy {
         });
     }
 
-    _emitRequestLog(method, host, url, status, size, intercepted, snooped, requestBody, responseBody) {
+    _emitRequestLog(method, host, url, status, size, intercepted, snooped, requestBody, responseBody, requestHeaders, responseHeaders) {
         if (!this.onRequestLog) return;
         this.onRequestLog({
             timestamp: Date.now(),
+            source: 'proxy',
             method: method || 'GET',
             host,
             path: url,
@@ -297,9 +331,104 @@ class MitmProxy {
             snooped: snooped || null,
             requestBody: requestBody || null,
             responseBody: responseBody || null,
+            requestHeaders: requestHeaders ? this._normalizeHeaders(requestHeaders) : null,
+            responseHeaders: responseHeaders ? this._normalizeHeaders(responseHeaders) : null,
         });
     }
 
+    _normalizeHeaders(headers) {
+        // Normalize node http header objects (which can include arrays) into
+        // a flat Record<string,string> that's safe to JSON-stringify for the renderer.
+        const out = {};
+        for (const key of Object.keys(headers || {})) {
+            const value = headers[key];
+            if (Array.isArray(value)) out[key] = value.join(', ');
+            else if (value === undefined || value === null) continue;
+            else out[key] = String(value);
+        }
+        return out;
+    }
+
+    // ── Captured game headers ──────────────────────────────────────────────
+    // Keep only the header keys whose values the BHVR backend actually
+    // inspects for client-identity / analytics matching. We don't need (and
+    // don't want to store) host/content-length/api-key.
+    static CAPTURE_HEADER_KEYS = new Set([
+        'user-agent',
+        'x-kraken-client-platform',
+        'x-kraken-client-provider',
+        'x-kraken-analytics-platform',
+        'x-kraken-client-resolution',
+        'x-kraken-client-timezone-offset',
+        'x-kraken-client-os',
+        'x-kraken-client-version',
+        'x-kraken-analytics-session-id',
+        'x-kraken-analytics-dynamic-contents',
+    ]);
+
+    _captureGameHeaders(host, headers) {
+        const snapshot = {};
+        for (const k of Object.keys(headers || {})) {
+            const lk = k.toLowerCase();
+            if (!MitmProxy.CAPTURE_HEADER_KEYS.has(lk)) continue;
+            const v = headers[k];
+            if (v == null) continue;
+            snapshot[lk] = Array.isArray(v) ? v.join(', ') : String(v);
+        }
+        // Drop the session-id so each engine request gets a fresh one (matches
+        // the live game's behaviour where every request rolls a new GUID).
+        delete snapshot['x-kraken-analytics-session-id'];
+        if (Object.keys(snapshot).length === 0) return;
+        snapshot.capturedAt = Date.now();
+        this.capturedGameHeaders.set(host, snapshot);
+    }
+
+    /**
+     * Return the most recently captured game-client headers for a host.
+     * Engines feed this into getApiConfig as headerOverrides to mirror the
+     * live game exactly. Returns null if nothing has been captured yet.
+     */
+    getCapturedGameHeaders(host) {
+        return this.capturedGameHeaders.get(host) || null;
+    }
+
+    /**
+     * Rewrite outgoing request bodies before they reach BHVR.
+     * Currently handles ping spoofing: replaces per-region latencies on the
+     * matchmaking latency-report endpoint so BHVR routes the player to a
+     * chosen region. Returns the modified body string, or null to pass through.
+     *
+     * Works independently of the unlock-fabrication master toggle — the
+     * pingSpoof sub-config has its own enabled flag.
+     */
+    _modifyRequestBody(url, reqBodyStr) {
+        if (!reqBodyStr) return null;
+        const ps = this.unlockConfig && this.unlockConfig.pingSpoof;
+        if (!ps || !ps.enabled || !ps.region) return null;
+
+        // BHVR sends per-region latencies on a few related endpoints. Match
+        // anything with a "latencies" array so we don't have to enumerate
+        // every path the game might use across patches.
+        if (!/latencies|matchIncentives|region-latencies/i.test(url)) return null;
+
+        try {
+            const body = JSON.parse(reqBodyStr);
+            if (!Array.isArray(body.latencies)) return null;
+
+            const good = Math.max(1, Number(ps.goodLatency) || 20);
+            const bad = Math.max(good + 1, Number(ps.badLatency) || 999);
+
+            body.latencies = body.latencies.map(entry => ({
+                ...entry,
+                latency: entry.regionName === ps.region ? good : bad,
+            }));
+
+            console.log(`[Proxy] Ping spoof: ${ps.region}=${good}ms, others=${bad}ms`);
+            return JSON.stringify(body);
+        } catch (_) {
+            return null;
+        }
+    }
 
 
     // ── MITM Request Handler ──
@@ -308,6 +437,12 @@ class MitmProxy {
         // Capture game headers for tomes (needed for API calls)
         if (this.tomeCompleter && req.headers['api-key']) {
             this.tomeCompleter.captureHeaders(req.headers, host);
+        }
+
+        // Snapshot live game headers so our engines can mint identical requests.
+        // Skip our own outgoing traffic (would just loop back our stale defaults).
+        if (!req.headers['x-prestiger-internal'] && req.headers['api-key']) {
+            this._captureGameHeaders(host, req.headers);
         }
 
         // Buffer request body for debug logging
@@ -327,7 +462,7 @@ class MitmProxy {
                     if (body.__rawBuffer) {
                         const buf = body.__rawBuffer;
                         console.log(`[Proxy] Intercepted ${req.url} → ${interceptType} (raw ${buf.length} bytes)`);
-                        this._emitRequestLog(req.method, host, req.url, 200, buf.length, interceptType, null, reqBodyStr, `[Binary ${buf.length} bytes]`);
+                        this._emitRequestLog(req.method, host, req.url, 200, buf.length, interceptType, null, reqBodyStr, `[Binary ${buf.length} bytes]`, req.headers, { 'Content-Type': 'application/octet-stream', 'Content-Length': String(buf.length) });
                         res.writeHead(200, {
                             'Content-Type': 'application/octet-stream',
                             'Content-Length': buf.length,
@@ -339,7 +474,7 @@ class MitmProxy {
                     const json = JSON.stringify(body);
                     const resPreview = json.slice(0, 50000);
                     console.log(`[Proxy] Intercepted ${req.url} → ${interceptType}`);
-                    this._emitRequestLog(req.method, host, req.url, 200, Buffer.byteLength(json), interceptType, null, reqBodyStr, resPreview);
+                    this._emitRequestLog(req.method, host, req.url, 200, Buffer.byteLength(json), interceptType, null, reqBodyStr, resPreview, req.headers, { 'Content-Type': 'application/json', 'Content-Length': String(Buffer.byteLength(json)) });
                     res.writeHead(200, {
                         'Content-Type': 'application/json',
                         'Content-Length': Buffer.byteLength(json),
@@ -347,6 +482,14 @@ class MitmProxy {
                     res.end(json);
                     return;
                 }
+            }
+
+            // Allow request-body modification before forwarding (e.g. ping spoof).
+            let effectiveReqBody = reqBody;
+            const modifiedReqBodyStr = this._modifyRequestBody(req.url, reqBodyStr);
+            if (modifiedReqBodyStr !== null) {
+                effectiveReqBody = Buffer.from(modifiedReqBodyStr, 'utf8');
+                reqBodyStr = modifiedReqBodyStr;
             }
 
             // Forward request to real server
@@ -357,6 +500,11 @@ class MitmProxy {
                 method: req.method,
                 headers: { ...req.headers, host },
             };
+
+            // If we rewrote the body, fix content-length so the upstream agrees on size.
+            if (modifiedReqBodyStr !== null) {
+                options.headers['content-length'] = String(effectiveReqBody.length);
+            }
 
             const snoopType = this._shouldSnoop(req.url);
 
@@ -406,13 +554,15 @@ class MitmProxy {
                                     this.profileGenerator.mergeLiveCosmetics(data.inventoryItems);
                                 }
 
-                                // Inject items/addons/offerings/perks into the real response
+                                // Inject perks (always) + items/addons/offerings (only mid-match,
+                                // to avoid the universal-inventory <-> characterItems doubling
+                                // bug that produced 19998 stacks in the lobby loadout grid).
                                 if (this.interceptEnabled && this.unlockConfig && this.profileGenerator) {
-                                    const populated = this.profileGenerator.populateInventory(data, this.unlockConfig);
+                                    const populated = this.profileGenerator.populateInventory(data, this.unlockConfig, this.isInMatch);
                                     const modifiedJson = JSON.stringify(populated);
                                     buffer = Buffer.from(modifiedJson);
                                     modified = true;
-                                    console.log(`[Proxy] Populated inventory with items/addons/offerings (${populated.inventoryItems.length} total)`);
+                                    console.log(`[Proxy] Populated inventory (${populated.inventoryItems.length} items, isInMatch=${this.isInMatch})`);
                                 }
                             } else if (snoopType === 'bloodweb') {
                                 // Modify bloodweb response: inject characterItems and set prestige.
@@ -495,6 +645,72 @@ class MitmProxy {
                                         this.playerRole = null;
                                     }
                                 } catch (_) {}
+                            } else if (snoopType === 'walletLocalized') {
+                                // Spoof wallet currencies — specifically event/seasonal currencies
+                                // that gate "remaining uses" on event offerings (Toothy Torte,
+                                // Anniversary cakes, Halloween offerings, etc). Without this the
+                                // equipped offering slot displays "NONE REMAINING / 0" even when
+                                // the offering item itself has qty 9999 in inventoryItems.
+                                if (this.interceptEnabled && this.unlockConfig && this.unlockConfig.currency &&
+                                    this.unlockConfig.currency.enabled && this.profileGenerator) {
+                                    const populated = this.profileGenerator.populateLocalizedWallet(data, this.unlockConfig);
+                                    const modifiedJson = JSON.stringify(populated);
+                                    buffer = Buffer.from(modifiedJson);
+                                    modified = true;
+                                    console.log(`[Proxy] Spoofed localized wallet (${populated.list?.length || 0} currencies)`);
+                                }
+                            } else if (snoopType === 'getAllMerge') {
+                                // Snoop+merge get-all: only owned characters from the real
+                                // server response, but we inject our universal characterItems
+                                // + spoofed prestige into each one. Used when "All Characters"
+                                // is OFF but Perks/Items/Addons/Offerings are ON.
+                                if (this.interceptEnabled && this.profileGenerator) {
+                                    const merged = this.profileGenerator.populateGetAll(data, this.unlockConfig);
+                                    const modifiedJson = JSON.stringify(merged);
+                                    buffer = Buffer.from(modifiedJson);
+                                    modified = true;
+                                    console.log(`[Proxy] Merged characterItems into ${merged.list?.length || 0} owned characters`);
+                                }
+                            } else if (snoopType === 'loadout') {
+                                // Per-character loadout persistence.
+                                //
+                                // (1) CAPTURE from the request body. BHVR returns
+                                //     the SAVED state in its response, so by the time
+                                //     we're in this snoop block we know the request
+                                //     was accepted by the server. Save the player's
+                                //     intent to disk so we can serve it back on the
+                                //     next fetch (game open) when the server may
+                                //     strip slots whose items it thinks the user
+                                //     doesn't own.
+                                if (reqBodyStr && this.loadoutStore) {
+                                    try {
+                                        const reqBody = JSON.parse(reqBodyStr);
+                                        const captured = this.loadoutStore.capture(reqBody, req.method);
+                                        if (captured) {
+                                            console.log(`[Proxy] Saved loadout for ${captured.character} (${captured.gameMode})`);
+                                        }
+                                    } catch (_) {}
+                                }
+
+                                // (2) RESTORE to the response body. If we have a
+                                //     stored payload for this character, REPLACE
+                                //     `customizations` and `loadouts` so the game
+                                //     UI sees the full state regardless of what
+                                //     the server's inventory validation stripped.
+                                if (data && data.character && this.loadoutStore) {
+                                    const stored = this.loadoutStore.load(data.character, data.gameMode);
+                                    if (stored) {
+                                        const restored = {
+                                            ...data,
+                                            customizations: stored.customizations || data.customizations,
+                                            loadouts: stored.loadouts || data.loadouts,
+                                        };
+                                        const modifiedJson = JSON.stringify(restored);
+                                        buffer = Buffer.from(modifiedJson);
+                                        modified = true;
+                                        console.log(`[Proxy] Restored loadout for ${data.character}`);
+                                    }
+                                }
                             }
                         } catch (parseErr) {
                             // If bloodweb response couldn't be parsed (server error),
@@ -544,7 +760,7 @@ class MitmProxy {
                         resBodyStr = `[Binary ${buffer.length} bytes]`;
                     }
 
-                    this._emitRequestLog(req.method, host, req.url, proxyRes.statusCode, buffer.length, modified ? 'inventories' : null, snoopType, reqBodyStr, resBodyStr);
+                    this._emitRequestLog(req.method, host, req.url, proxyRes.statusCode, buffer.length, modified ? 'inventories' : null, snoopType, reqBodyStr, resBodyStr, req.headers, proxyRes.headers);
                 });
             });
 
@@ -556,9 +772,9 @@ class MitmProxy {
                 } catch (_) {}
             });
 
-            // Write the buffered request body and end
-            if (reqBody.length > 0) {
-                proxyReq.write(reqBody);
+            // Write the (possibly modified) request body and end
+            if (effectiveReqBody.length > 0) {
+                proxyReq.write(effectiveReqBody);
             }
             proxyReq.end();
         });
