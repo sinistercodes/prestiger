@@ -769,32 +769,32 @@ class ProfileGenerator {
      *
      * Used when "All Characters" is OFF but any of Perks/Items/Addons/Offerings
      * is ON. Lets the REAL server response through (only owned characters) and
-     * injects our universal characterItems + spoofed prestige into each
-     * character the server actually returned. Unowned characters stay hidden.
+     * injects our universal characterItems into each character the server
+     * actually returned. Unowned characters stay hidden.
+     *
+     * IMPORTANT: prestigeLevel and legacyPrestigeLevel are NOT modified here.
+     * "All Characters" being OFF means the user explicitly does NOT want their
+     * character progression altered — they just want perks/items available on
+     * the characters they actually own. Touching prestige in this path caused
+     * the "every owned character shows P100 even though All Characters is
+     * disabled" bug.
      *
      * Contrast with generateGetAll() which REPLACES the entire response with
-     * a fabricated template containing ALL characters.
+     * a fabricated template containing ALL characters at the configured
+     * prestige.
      */
     populateGetAll(data, config) {
         if (!data || !Array.isArray(data.list)) return data;
 
         const result = this._deepClone(data);
-        const prestige = this._resolveValue(
-            config.characters.prestigeLevel,
-            config.characters.prestigeRandomMin,
-            config.characters.prestigeRandomMax
-        );
         const itemQuantity = this._clampedItemQuantity(config);
         const universalItems = this._buildUniversalCharacterItems(itemQuantity, config);
 
         for (const character of result.list) {
-            character.prestigeLevel = prestige;
-            if ('legacyPrestigeLevel' in character) {
-                character.legacyPrestigeLevel = prestige;
-            }
-            // Replace characterItems with our universal array (filtered by
-            // which sub-toggles are on). The game UI only shows the items
-            // relevant to this character's role.
+            // Leave prestigeLevel / legacyPrestigeLevel untouched — preserve
+            // the user's real server-side progression. Only inject items.
+            // The game UI only shows the items relevant to this character's
+            // role, so the universal array is safe to apply to every char.
             character.characterItems = universalItems.slice();
         }
 
