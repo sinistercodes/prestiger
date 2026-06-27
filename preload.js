@@ -36,6 +36,12 @@ contextBridge.exposeInMainWorld('api', {
         ipcRenderer.on('proxy-cookie-captured', listener);
         return () => ipcRenderer.removeListener('proxy-cookie-captured', listener);
     },
+    // Generic backend-driven log channel (mystery-box auto-claim, etc).
+    onAutoLog: (callback) => {
+        const listener = (_event, data) => callback(data);
+        ipcRenderer.on('auto-log', listener);
+        return () => ipcRenderer.removeListener('auto-log', listener);
+    },
     // Farming
     startFarm: (config) => ipcRenderer.send('start-farm', config),
     cancelFarm: () => ipcRenderer.send('cancel-farm'),
@@ -59,6 +65,8 @@ contextBridge.exposeInMainWorld('api', {
         ipcRenderer.on('proxy-request-log', listener);
         return () => ipcRenderer.removeListener('proxy-request-log', listener);
     },
+    exportDebugLogs: (logs) => ipcRenderer.invoke('debug-export-logs', logs),
+    replayRequest: (req) => ipcRenderer.invoke('debug-replay-request', req),
     // Tomes
     getTomesConfig: () => ipcRenderer.invoke('get-tomes-config'),
     setTomesConfig: (config) => ipcRenderer.invoke('set-tomes-config', config),
