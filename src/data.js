@@ -53,7 +53,8 @@ const SURVIVORS = [
     { name: "Dustin", id: "S50" },
     { name: "Eleven", id: "S51" },
     { name: "Kwon Tae-Young", id: "S52" },
-    { name: "Shane Wiigwaas", id: "S53" }
+    { name: "Shane Wiigwaas", id: "S53" },
+    { name: "Aurora Stardotter", id: "S54" }
 ];
 
 const KILLERS = [
@@ -99,7 +100,8 @@ const KILLERS = [
     { name: "Animatronic", id: "K40" },
     { name: "Krasue", id: "K41" },
     { name: "First", id: "K42" },
-    { name: "Jason", id: "K43" }
+    { name: "Jason", id: "K43" },
+    { name: "Judgment", id: "K44" }
 ];
 
 function sortCharacters(list) {
